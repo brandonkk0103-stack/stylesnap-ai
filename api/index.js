@@ -8,12 +8,16 @@ const fs = require('fs').promises;
 const path = require('path');
 
 const app = express();
-const upload = multer({ dest: '/tmp/uploads/' });
+
+// Configure multer to use /tmp directory (Vercel serverless temp storage)
+const upload = multer({ 
+  dest: '/tmp/uploads/',
+  limits: { fileSize: 10 * 1024 * 1024 }
+});
 
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.static('public'));
 
 // Initialize Replicate
 const replicate = new Replicate({
@@ -23,7 +27,7 @@ const replicate = new Replicate({
 // In-memory user credits store (use database in production)
 const userCredits = new Map();
 
-// Helper function to get/set user credits
+// Helper functions
 const getUserCredits = (userId) => {
   return userCredits.get(userId) || 0;
 };
@@ -42,14 +46,12 @@ const stylePrompts = {
   'vintage-cartoon': 'retro cartoon style, 1930s animation aesthetic, rubber hose animation, classic Disney'
 };
 
-// Size configurations with credit costs
+// Size configurations
 const sizeConfigs = {
   'standard': { width: 1024, height: 1024, credits: 1 },
   'large': { width: 1024, height: 1536, credits: 2 },
   'premium': { width: 1024, height: 1024, credits: 3, hd: true }
 };
-
-// API Routes
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -73,7 +75,7 @@ app.post('/api/generate/text', async (req, res) => {
     }
 
     const userCredits = getUserCredits(userId);
-    const requiredCredits = sizeConfigs[size].credits;
+    const requiredCredits = sizeConfigs[size]?.credits || 1;
 
     if (userCredits < requiredCredits) {
       return res.status(402).json({ 
@@ -83,14 +85,10 @@ app.post('/api/generate/text', async (req, res) => {
       });
     }
 
-    // Build full prompt with style
     const stylePrompt = stylePrompts[style] || stylePrompts['western-animation'];
     const fullPrompt = `${prompt}, ${stylePrompt}`;
-    
     const sizeConfig = sizeConfigs[size];
 
-    // Call Replicate API for text-to-image
-    // Using Stable Diffusion XL for high quality results
     const output = await replicate.run(
       "stability-ai/sdxl:39ed52f2a78e934b3ba6e2a89f5b1c712de7dfea535525255b1aa35c5565e08b",
       {
@@ -106,7 +104,6 @@ app.post('/api/generate/text', async (req, res) => {
       }
     );
 
-    // Deduct credits
     setUserCredits(userId, userCredits - requiredCredits);
 
     res.json({
@@ -136,7 +133,7 @@ app.post('/api/generate/image', upload.single('image'), async (req, res) => {
     }
 
     const userCredits = getUserCredits(userId);
-    const requiredCredits = sizeConfigs[size].credits;
+    const requiredCredits = sizeConfigs[size]?.credits || 1;
 
     if (userCredits < requiredCredits) {
       return res.status(402).json({ 
@@ -146,12 +143,10 @@ app.post('/api/generate/image', upload.single('image'), async (req, res) => {
       });
     }
 
-    // Read uploaded image
     const imageBuffer = await fs.readFile(imageFile.path);
     const base64Image = imageBuffer.toString('base64');
     const imageDataUrl = `data:${imageFile.mimetype};base64,${base64Image}`;
 
-    // Build full prompt with style
     const stylePrompt = stylePrompts[style] || stylePrompts['western-animation'];
     const fullPrompt = prompt 
       ? `${prompt}, ${stylePrompt}` 
@@ -159,8 +154,6 @@ app.post('/api/generate/image', upload.single('image'), async (req, res) => {
     
     const sizeConfig = sizeConfigs[size];
 
-    // Call Replicate API for image-to-image
-    // Using SDXL img2img model
     const output = await replicate.run(
       "stability-ai/sdxl:39ed52f2a78e934b3ba6e2a89f5b1c712de7dfea535525255b1aa35c5565e08b",
       {
@@ -173,15 +166,13 @@ app.post('/api/generate/image', upload.single('image'), async (req, res) => {
           negative_prompt: "ugly, blurry, low quality, distorted, deformed",
           num_inference_steps: sizeConfig.hd ? 50 : 30,
           guidance_scale: 7.5,
-          prompt_strength: 0.8 // How much to transform vs preserve original
+          prompt_strength: 0.8
         }
       }
     );
 
-    // Clean up uploaded file
-    await fs.unlink(imageFile.path);
+    await fs.unlink(imageFile.path).catch(() => {});
 
-    // Deduct credits
     setUserCredits(userId, userCredits - requiredCredits);
 
     res.json({
@@ -194,13 +185,8 @@ app.post('/api/generate/image', upload.single('image'), async (req, res) => {
   } catch (error) {
     console.error('Image generation error:', error);
     
-    // Clean up uploaded file on error
     if (req.file) {
-      try {
-        await fs.unlink(req.file.path);
-      } catch (unlinkError) {
-        console.error('Error deleting file:', unlinkError);
-      }
+      await fs.unlink(req.file.path).catch(() => {});
     }
     
     res.status(500).json({ 
@@ -219,7 +205,6 @@ app.post('/api/purchase/create-checkout', async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // Create Stripe checkout session
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: [
@@ -230,7 +215,7 @@ app.post('/api/purchase/create-checkout', async (req, res) => {
               name: `${credits} AI Generation Credits`,
               description: 'Credits for AI image generation',
             },
-            unit_amount: Math.round(price * 100), // Convert to cents
+            unit_amount: Math.round(price * 100),
           },
           quantity: 1,
         },
@@ -255,7 +240,7 @@ app.post('/api/purchase/create-checkout', async (req, res) => {
   }
 });
 
-// Stripe webhook to handle successful payments
+// Stripe webhook
 app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature'];
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -269,12 +254,10 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
-  // Handle the checkout.session.completed event
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object;
     const { userId, credits } = session.metadata;
 
-    // Add credits to user account
     const currentCredits = getUserCredits(userId);
     setUserCredits(userId, currentCredits + parseInt(credits));
 
@@ -284,7 +267,7 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
   res.json({ received: true });
 });
 
-// Verify payment completion
+// Verify payment
 app.get('/api/purchase/verify/:sessionId', async (req, res) => {
   try {
     const { sessionId } = req.params;
@@ -306,10 +289,11 @@ app.get('/api/purchase/verify/:sessionId', async (req, res) => {
   }
 });
 
-// Error handling middleware
+// Error handler
 app.use((error, req, res, next) => {
   console.error('Server error:', error);
   res.status(500).json({ error: 'Internal server error' });
 });
 
+// Export for Vercel
 module.exports = app;
