@@ -54,7 +54,8 @@ const App = () => {
 
   const fetchCredits = async () => {
     try {
-      const response = await fetch(`/api/credits/${userId}`);
+      const apiUrl = import.meta.env.VITE_API_URL || '';
+      const response = await fetch(`${apiUrl}/api/credits/${userId}`);
       const data = await response.json();
       setCredits(data.credits || 0);
     } catch (error) {
@@ -108,10 +109,11 @@ const App = () => {
 
     try {
       let response;
+      const apiUrl = import.meta.env.VITE_API_URL || '';
       
       if (activeTab === 'text') {
         // Text to image
-        response = await fetch('/api/generate/text', {
+        response = await fetch(`${apiUrl}/api/generate/text`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -132,7 +134,7 @@ const App = () => {
         formData.append('size', imageSize);
         formData.append('prompt', prompt);
 
-        response = await fetch('/api/generate/image', {
+        response = await fetch(`${apiUrl}/api/generate/image`, {
           method: 'POST',
           body: formData,
         });
@@ -160,7 +162,8 @@ const App = () => {
 
   const handlePurchaseCredits = async (packageData) => {
     try {
-      const response = await fetch('/api/purchase/create-checkout', {
+      const apiUrl = import.meta.env.VITE_API_URL || '';
+      const response = await fetch(`${apiUrl}/api/purchase/create-checkout`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
