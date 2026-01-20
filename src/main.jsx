@@ -54,7 +54,7 @@ const App = () => {
 
   const fetchCredits = async () => {
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || '';
+      const apiUrl = 'https://stylesnap-ai.onrender.com';
       const response = await fetch(`${apiUrl}/api/credits/${userId}`);
       const data = await response.json();
       setCredits(data.credits || 0);
@@ -109,7 +109,7 @@ const App = () => {
 
     try {
       let response;
-      const apiUrl = import.meta.env.VITE_API_URL || '';
+      const apiUrl = 'https://stylesnap-ai.onrender.com';
       
       if (activeTab === 'text') {
         // Text to image
@@ -162,7 +162,7 @@ const App = () => {
 
   const handlePurchaseCredits = async (packageData) => {
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || '';
+      const apiUrl = 'https://stylesnap-ai.onrender.com';
       const response = await fetch(`${apiUrl}/api/purchase/create-checkout`, {
         method: 'POST',
         headers: {
